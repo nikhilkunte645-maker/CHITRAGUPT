@@ -11,6 +11,12 @@ import { buildForecast } from "./forecastService.js";
 import { createInvoice, getInvoices, recordPayment, ServiceError } from "./invoiceService.js";
 import { parseForLedger, oldestUnpaidInvoice } from "./ledgerService.js";
 import { generateMonthInvoices } from "./monthlyService.js";
+import {
+  buildStudentProfile,
+  type ProfileInvoice,
+  type ProfilePayment,
+  type ProfileStudent,
+} from "./studentProfile.js";
 import { isISODate, todayISO } from "./money.js";
 import { resetAndSeed, seedIfEmpty } from "./seed.js";
 
@@ -124,6 +130,42 @@ app.post(
       phone,
       batch_id: batchId,
     });
+  }),
+);
+
+app.get(
+  "/api/students/:id",
+  route((req, res) => {
+    const id = parseId(req.params.id);
+    const row = db
+      .prepare(
+        `SELECT s.id, s.name, s.parent_name, s.phone, s.batch_id, b.name AS batch_name, b.monthly_fee AS monthly_fee
+         FROM students s LEFT JOIN batches b ON b.id = s.batch_id WHERE s.id = ?`,
+      )
+      .get(id) as ProfileStudent | undefined;
+    if (!row) {
+      fail(404, `Student ${id} not found`);
+    }
+    const invoices: ProfileInvoice[] = getInvoices()
+      .filter((inv) => inv.student_id === id)
+      .map((inv) => ({
+        id: inv.id,
+        amount: inv.amount,
+        issue_date: inv.issue_date,
+        due_date: inv.due_date,
+        paid: inv.paid,
+        balance: inv.balance,
+        status: inv.status,
+        days_overdue: inv.days_overdue,
+      }));
+    const payments = db
+      .prepare(
+        `SELECT p.id, p.invoice_id, p.amount, p.date, p.method
+         FROM payments p JOIN invoices i ON i.id = p.invoice_id
+         WHERE i.student_id = ? ORDER BY p.date, p.id`,
+      )
+      .all(id) as unknown as ProfilePayment[];
+    res.json(buildStudentProfile(row, invoices, payments));
   }),
 );
 

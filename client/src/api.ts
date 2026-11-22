@@ -208,3 +208,67 @@ export function resetDemoData(): Promise<unknown> {
   return api.post<unknown>("/demo/reset", {});
 }
 
+
+// Mirrors POST /api/students body. Phone must be a 10-digit Indian mobile number starting 6-9.
+export interface NewStudent {
+  name: string;
+  parent_name: string;
+  phone: string;
+  batch_id: number;
+}
+
+// Mirrors GET /api/students/:id -> student. Fee comes from the batch; the server owns it.
+export interface StudentProfileStudent {
+  id: number;
+  name: string;
+  parent_name: string | null;
+  phone: string | null;
+  batch_id: number | null;
+  batch_name: string | null;
+  monthly_fee: number | null;
+}
+
+export interface StudentProfileInvoice {
+  id: number;
+  amount: number;
+  issue_date: string;
+  due_date: string;
+  paid: number;
+  balance: number;
+  status: "paid" | "partial" | "unpaid";
+  days_overdue: number;
+}
+
+export interface StudentProfilePayment {
+  id: number;
+  invoice_id: number;
+  amount: number;
+  date: string;
+  method: string;
+}
+
+// All money and count values are computed by the server.
+export interface StudentProfileSummary {
+  totalInvoiced: number;
+  totalPaid: number;
+  outstanding: number;
+  overdue: number;
+  pendingInvoiceCount: number;
+}
+
+export interface StudentProfile {
+  student: StudentProfileStudent;
+  summary: StudentProfileSummary;
+  invoices: StudentProfileInvoice[];
+  payments: StudentProfilePayment[];
+}
+
+// POST /api/students returns the created row without batch_name, so it is not a full Student.
+export function createStudent(body: NewStudent): Promise<Omit<Student, "batch_name">> {
+  return api.post<Omit<Student, "batch_name">>("/students", body);
+}
+
+export function getStudentProfile(id: number): Promise<StudentProfile> {
+  return api.get<StudentProfile>(`/students/${id}`);
+}
+
