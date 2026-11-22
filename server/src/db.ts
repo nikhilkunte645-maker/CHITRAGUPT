@@ -6,9 +6,11 @@ import { fileURLToPath } from "node:url";
 // Resolves to <server>/data whether run from src/ (tsx) or dist/ (tsc build).
 const serverRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = path.join(serverRoot, "data");
-fs.mkdirSync(dataDir, { recursive: true });
 
-export const DB_PATH = path.join(dataDir, "chitragupt.db");
+// CHITRAGUPT_DB overrides the database file (used by tests); empty or unset keeps the default.
+const envDbPath = process.env.CHITRAGUPT_DB?.trim();
+export const DB_PATH = envDbPath ? envDbPath : path.join(dataDir, "chitragupt.db");
+fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 export const db = new DatabaseSync(DB_PATH);
 
 db.exec("PRAGMA foreign_keys = ON;");

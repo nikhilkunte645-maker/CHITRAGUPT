@@ -89,11 +89,29 @@ const UNPAID: [number, number, number][] = [
   [4, 3500, -6],
 ];
 
-/** Seeds demo data. Returns false (and changes nothing) if students already exist. */
-export function seedIfEmpty(): boolean {
-  const { count } = db.prepare("SELECT COUNT(*) AS count FROM students").get() as { count: number };
-  if (count > 0) return false;
+/**
+ * Deletes every demo table in FK-safe order and reseeds, all in one transaction.
+ * Returns the student and invoice counts after seeding.
+ */
+export function resetAndSeed(): { students: number; invoices: number } {
+  return withTransaction(() => {
+    db.exec("DELETE FROM reminders");
+    db.exec("DELETE FROM payments");
+    db.exec("DELETE FROM invoices");
+    db.exec("DELETE FROM bills");
+    db.exec("DELETE FROM students");
+    db.exec("DELETE FROM batches");
+    db.exec("DELETE FROM settings");
+    insertSeedRows();
 
+    const students = db.prepare("SELECT COUNT(*) AS count FROM students").get() as { count: number };
+    const invoices = db.prepare("SELECT COUNT(*) AS count FROM invoices").get() as { count: number };
+    return { students: students.count, invoices: invoices.count };
+  });
+}
+
+/** Inserts the demo rows. Must run inside a transaction (callers own BEGIN/COMMIT). */
+function insertSeedRows(): void {
   const today = todayISO();
 
   const insertBatch = db.prepare("INSERT INTO batches (name, monthly_fee) VALUES (?, ?)");
@@ -114,78 +132,84 @@ export function seedIfEmpty(): boolean {
   );
   const insertSetting = db.prepare("INSERT INTO settings (key, value) VALUES (?, ?)");
 
-  withTransaction(() => {
-    const batchIds = BATCHES.map((b) => Number(insertBatch.run(b.name, b.monthly_fee).lastInsertRowid));
+  const batchIds = BATCHES.map((b) => Number(insertBatch.run(b.name, b.monthly_fee).lastInsertRowid));
 
-    const studentIds = STUDENTS.map((s) =>
-      Number(insertStudent.run(s.name, s.parent_name, s.phone, batchIds[s.batch]).lastInsertRowid),
+  const studentIds = STUDENTS.map((s) =>
+    Number(insertStudent.run(s.name, s.parent_name, s.phone, batchIds[s.batch]).lastInsertRowid),
+  );
+
+  const feeOf = (studentIndex: number): number => BATCHES[STUDENTS[studentIndex].batch].monthly_fee;
+
+  /** Inserts an invoice with an optional single payment, then sets its derived status. */
+  const seedInvoice = (
+    studentIndex: number,
+    amount: number,
+    issue: string,
+    due: string,
+    payment?: { amount: number; date: string; method: PaymentMethod },
+  ): void => {
+    const id = Number(
+      insertInvoice.run(studentIds[studentIndex], amount, issue, due, "unpaid").lastInsertRowid,
     );
+    const paid = payment ? payment.amount : 0;
+    if (payment) insertPayment.run(id, payment.amount, payment.date, payment.method);
+    db.prepare("UPDATE invoices SET status = ? WHERE id = ?").run(deriveStatus(amount, paid), id);
+  };
 
-    const feeOf = (studentIndex: number): number => BATCHES[STUDENTS[studentIndex].batch].monthly_fee;
+  for (const [studentIndex, monthsAgo, dayAfter, method] of PAID) {
+    const fee = feeOf(studentIndex);
+    const issue = monthStartMonthsAgo(today, monthsAgo);
+    seedInvoice(studentIndex, fee, issue, addDays(issue, 10), {
+      amount: fee,
+      date: addDays(issue, dayAfter),
+      method,
+    });
+  }
 
-    /** Inserts an invoice with an optional single payment, then sets its derived status. */
-    const seedInvoice = (
-      studentIndex: number,
-      amount: number,
-      issue: string,
-      due: string,
-      payment?: { amount: number; date: string; method: PaymentMethod },
-    ): void => {
-      const id = Number(
-        insertInvoice.run(studentIds[studentIndex], amount, issue, due, "unpaid").lastInsertRowid,
-      );
-      const paid = payment ? payment.amount : 0;
-      if (payment) insertPayment.run(id, payment.amount, payment.date, payment.method);
-      db.prepare("UPDATE invoices SET status = ? WHERE id = ?").run(deriveStatus(amount, paid), id);
-    };
+  for (const [studentIndex, monthsAgo, paidAmount, method] of PARTIAL) {
+    const fee = feeOf(studentIndex);
+    const issue = monthStartMonthsAgo(today, monthsAgo);
+    seedInvoice(studentIndex, fee, issue, addDays(issue, 10), {
+      amount: paidAmount,
+      date: addDays(issue, 3),
+      method,
+    });
+  }
 
-    for (const [studentIndex, monthsAgo, dayAfter, method] of PAID) {
-      const fee = feeOf(studentIndex);
-      const issue = monthStartMonthsAgo(today, monthsAgo);
-      seedInvoice(studentIndex, fee, issue, addDays(issue, 10), {
-        amount: fee,
-        date: addDays(issue, dayAfter),
-        method,
-      });
+  for (const [studentIndex, amount, dueAgo] of UNPAID) {
+    const due = addDays(today, -dueAgo);
+    seedInvoice(studentIndex, amount, addDays(due, -10), due);
+  }
+
+  // Monthly fee invoices for next month and the month after: issued on the 1st, due on the 10th.
+  // monthStartMonthsAgo accepts negative values, so -1 is next month and -2 is the month after.
+  for (const monthsAgo of [-1, -2]) {
+    const issue = monthStartMonthsAgo(today, monthsAgo);
+    for (let studentIndex = 0; studentIndex < STUDENTS.length; studentIndex++) {
+      seedInvoice(studentIndex, feeOf(studentIndex), issue, addDays(issue, 9));
     }
+  }
 
-    for (const [studentIndex, monthsAgo, paidAmount, method] of PARTIAL) {
-      const fee = feeOf(studentIndex);
-      const issue = monthStartMonthsAgo(today, monthsAgo);
-      seedInvoice(studentIndex, fee, issue, addDays(issue, 10), {
-        amount: paidAmount,
-        date: addDays(issue, 3),
-        method,
-      });
-    }
+  for (const bill of BILLS) {
+    insertBill.run(bill.name, bill.amount, nextDayOfMonth(bill.day, today));
+  }
 
-    for (const [studentIndex, amount, dueAgo] of UNPAID) {
-      const due = addDays(today, -dueAgo);
-      seedInvoice(studentIndex, amount, addDays(due, -10), due);
-    }
+  // One-off bill due on the 3rd of next month (recurring 'N').
+  const nextMonthStart = monthStartMonthsAgo(today, -1);
+  insertOneOffBill.run("Exam hall and study material advance", 22000, addDays(nextMonthStart, 2));
 
-    // Monthly fee invoices for next month and the month after: issued on the 1st, due on the 10th.
-    // monthStartMonthsAgo accepts negative values, so -1 is next month and -2 is the month after.
-    for (const monthsAgo of [-1, -2]) {
-      const issue = monthStartMonthsAgo(today, monthsAgo);
-      for (let studentIndex = 0; studentIndex < STUDENTS.length; studentIndex++) {
-        seedInvoice(studentIndex, feeOf(studentIndex), issue, addDays(issue, 9));
-      }
-    }
+  insertSetting.run("opening_cash", "5000");
+}
 
-    for (const bill of BILLS) {
-      insertBill.run(bill.name, bill.amount, nextDayOfMonth(bill.day, today));
-    }
+/** Seeds demo data. Returns false (and changes nothing) if students already exist. */
+export function seedIfEmpty(): boolean {
+  const { count } = db.prepare("SELECT COUNT(*) AS count FROM students").get() as { count: number };
+  if (count > 0) return false;
 
-    // One-off bill due on the 3rd of next month (recurring 'N').
-    const nextMonthStart = monthStartMonthsAgo(today, -1);
-    insertOneOffBill.run("Exam hall and study material advance", 22000, addDays(nextMonthStart, 2));
-
-    insertSetting.run("opening_cash", "5000");
-  });
-
+  withTransaction(() => insertSeedRows());
   return true;
 }
+
 
 const invokedDirectly =
   process.argv[1] !== undefined &&

@@ -13,6 +13,7 @@ export default function Students() {
 
   return (
     <Card title="Students">
+      {students.length === 0 && <p className="text-slate-500">No students yet.</p>}
       {/* Mobile: stacked cards */}
       <ul className="space-y-3 md:hidden">
         {students.map((s) => (

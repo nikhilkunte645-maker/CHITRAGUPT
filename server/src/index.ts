@@ -2,12 +2,14 @@ import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { buildActions } from "./actionsService.js";
 
+import { computeDashboard } from "./dashboardService.js";
 import { db } from "./db.js";
 import { buildForecast } from "./forecastService.js";
 import { createInvoice, getInvoices, recordPayment, ServiceError } from "./invoiceService.js";
+import { parseForLedger, oldestUnpaidInvoice } from "./ledgerService.js";
 import { generateMonthInvoices } from "./monthlyService.js";
 import { isISODate, todayISO } from "./money.js";
-import { seedIfEmpty } from "./seed.js";
+import { resetAndSeed, seedIfEmpty } from "./seed.js";
 
 const app = express();
 app.use(cors());
@@ -265,6 +267,43 @@ app.get(
   "/api/actions",
   route((_req, res) => {
     res.json(buildActions(todayISO()));
+  }),
+);
+
+// Dashboard
+app.get(
+  "/api/dashboard/summary",
+  route((_req, res) => {
+    res.json(computeDashboard(todayISO(), getInvoices()));
+  }),
+);
+
+// Ledger paste parser (read-only: never writes to the database)
+app.post(
+  "/api/ledger/parse",
+  route((req, res) => {
+    const text = body(req).text;
+    if (typeof text !== "string" || text.trim().length < 1 || text.trim().length > 500) {
+      fail(400, "text is required (max 500 characters)");
+    }
+    const result = parseForLedger(text.trim(), todayISO());
+    res.json({
+      candidates: result.candidates.map((c) => ({
+        ...c,
+        invoiceId: oldestUnpaidInvoice(c.studentId)?.id ?? null,
+      })),
+      needsStudentChoice: result.needsStudentChoice,
+      matches: result.matches,
+      note: result.note,
+    });
+  }),
+);
+
+// Demo reset
+app.post(
+  "/api/demo/reset",
+  route((_req, res) => {
+    res.json(resetAndSeed());
   }),
 );
 

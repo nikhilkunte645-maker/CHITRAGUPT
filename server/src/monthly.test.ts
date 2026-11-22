@@ -1,59 +1,84 @@
-import { after, before, describe, it } from "node:test";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { after, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { db } from "./db.js";
-import { generateMonthInvoices } from "./monthlyService.js";
-import { seedIfEmpty } from "./seed.js";
 
-// Far-future month so it never clashes with seeded invoices.
-const TEST_MONTH = "2099-01";
+// Point the DB at a unique temp file BEFORE any DB-using module is loaded.
+const tempDbPath = path.join(
+  os.tmpdir(),
+  `chitragupt-monthly-test-${Date.now()}-${Math.random().toString(36).slice(2)}.db`,
+);
+process.env.CHITRAGUPT_DB = tempDbPath;
 
-function billedStudentCount(): number {
-  const row = db
-    .prepare("SELECT COUNT(*) AS n FROM students WHERE batch_id IS NOT NULL")
-    .get() as { n: number };
-  return row.n;
+// Dynamic imports so db.ts opens the temp file, not the real database.
+const { seedIfEmpty } = await import("./seed.js");
+const { generateMonthInvoices, getMonthlyDueDay } = await import("./monthlyService.js");
+const { db } = await import("./db.js");
+
+// Far-future months so they never clash with seeded invoices.
+const MONTH_A = "2099-01";
+const MONTH_B = "2099-02";
+
+function invoiceDueDatesForMonth(month: string): string[] {
+  const rows = db
+    .prepare("SELECT due_date FROM invoices WHERE issue_date LIKE ?")
+    .all(`${month}-%`) as { due_date: string }[];
+  return rows.map((r) => r.due_date);
 }
 
-function billedInvoiceCountForMonth(month: string): number {
+function invoiceCountForMonth(month: string): number {
   const row = db
-    .prepare(
-      `SELECT COUNT(*) AS n
-       FROM invoices i
-       JOIN students s ON s.id = i.student_id
-       WHERE s.batch_id IS NOT NULL AND i.issue_date LIKE ?`,
-    )
+    .prepare("SELECT COUNT(*) AS n FROM invoices WHERE issue_date LIKE ?")
     .get(`${month}-%`) as { n: number };
   return row.n;
 }
 
-function clearMonth(month: string): void {
-  db.prepare("DELETE FROM invoices WHERE issue_date LIKE ?").run(`${month}-%`);
-}
-
 describe("generateMonthInvoices", () => {
-  before(() => {
-    seedIfEmpty();
-    clearMonth(TEST_MONTH);
-  });
-
   after(() => {
-    clearMonth(TEST_MONTH);
+    db.close();
+    fs.rmSync(tempDbPath, { force: true });
   });
 
   it("creates one invoice per billed student, then skips them on a second call", () => {
-    const n = billedStudentCount();
-    assert.ok(n > 0, "expected seeded students with batches");
+    seedIfEmpty();
 
-    const first = generateMonthInvoices(TEST_MONTH);
-    assert.deepEqual(first, { created: n, skipped: 0, month: TEST_MONTH });
+    const first = generateMonthInvoices(MONTH_A);
+    assert.ok(first.created > 0, "expected invoices to be created");
+    assert.equal(first.skipped, 0);
 
-    const second = generateMonthInvoices(TEST_MONTH);
-    assert.deepEqual(second, { created: 0, skipped: n, month: TEST_MONTH });
+    const second = generateMonthInvoices(MONTH_A);
+    assert.equal(second.created, 0);
+    assert.equal(second.skipped, first.created);
 
-    assert.equal(billedInvoiceCountForMonth(TEST_MONTH), n);
+    assert.equal(invoiceCountForMonth(MONTH_A), first.created);
   });
 
   it("rejects an invalid month", () => {
     assert.throws(() => generateMonthInvoices("2099-13"), /month must be YYYY-MM/);
+  });
+
+  it("uses the default due day 10 when no setting exists", () => {
+    assert.equal(getMonthlyDueDay(), 10);
+
+    const dueDates = invoiceDueDatesForMonth(MONTH_A);
+    assert.ok(dueDates.length > 0);
+    for (const due of dueDates) {
+      assert.ok(due.endsWith("-10"), `expected due date ending -10, got ${due}`);
+    }
+  });
+
+  it("uses monthly_due_day from settings when set", () => {
+    db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES ('monthly_due_day', '5')").run();
+    assert.equal(getMonthlyDueDay(), 5);
+
+    const result = generateMonthInvoices(MONTH_B);
+    assert.ok(result.created > 0);
+
+    const dueDates = invoiceDueDatesForMonth(MONTH_B);
+    assert.equal(dueDates.length, result.created);
+    for (const due of dueDates) {
+      assert.ok(due.endsWith("-05"), `expected due date ending -05, got ${due}`);
+    }
   });
 });

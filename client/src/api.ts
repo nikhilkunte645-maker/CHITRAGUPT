@@ -161,3 +161,50 @@ export function generateMonthInvoices(month: string): Promise<GenerateMonthResul
   return api.post<GenerateMonthResult>("/invoices/generate-month", { month });
 }
 
+// Mirrors GET /api/dashboard/summary. All money and status values are computed by the server.
+export interface DashboardBucket {
+  label: string;
+  count: number;
+  total: number;
+}
+
+export interface DashboardSummary {
+  today: string;
+  overdueTotal: number;
+  overdueCount: number;
+  buckets: DashboardBucket[];
+  // Overdue invoices, already sorted by the server.
+  rows: Invoice[];
+}
+
+export function getDashboardSummary(): Promise<DashboardSummary> {
+  return api.get<DashboardSummary>("/dashboard/summary");
+}
+
+// Mirrors POST /api/ledger/parse. Parsing never saves anything.
+export interface LedgerCandidate {
+  studentId: number;
+  studentName: string;
+  amount: number;
+  date: string;
+  intent: "payment" | "pending";
+  confidence: number;
+  invoiceId: number | null;
+}
+
+export interface LedgerParseResult {
+  candidates: LedgerCandidate[];
+  needsStudentChoice: boolean;
+  matches: { id: number; name: string }[];
+  note: string | null;
+}
+
+export function parseLedger(text: string): Promise<LedgerParseResult> {
+  return api.post<LedgerParseResult>("/ledger/parse", { text });
+}
+
+// Mirrors POST /api/demo/reset. The client only needs to know that it succeeded.
+export function resetDemoData(): Promise<unknown> {
+  return api.post<unknown>("/demo/reset", {});
+}
+

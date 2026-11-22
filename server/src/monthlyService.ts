@@ -8,8 +8,18 @@ export interface GenerateResult {
 
 const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 
-/** Fixed rule: every monthly invoice is due on the 10th. Batches carry no due day. */
-const DUE_DAY = "10";
+/**
+ * Day of month that monthly invoices are due, from settings.monthly_due_day.
+ * Valid range 1..28; missing or invalid values fall back to 10.
+ */
+export function getMonthlyDueDay(): number {
+  const row = db
+    .prepare("SELECT value FROM settings WHERE key = 'monthly_due_day'")
+    .get() as { value: string | null } | undefined;
+  const raw = (row?.value ?? "").trim();
+  const parsed = /^\d{1,2}$/.test(raw) ? Number(raw) : NaN;
+  return parsed >= 1 && parsed <= 28 ? parsed : 10;
+}
 
 interface BilledStudentRow {
   student_id: number;
@@ -24,7 +34,7 @@ export function generateMonthInvoices(month: string): GenerateResult {
   if (!MONTH_PATTERN.test(month)) throw new Error("month must be YYYY-MM");
 
   const issueDate = `${month}-01`;
-  const dueDate = `${month}-${DUE_DAY}`;
+  const dueDate = `${month}-${String(getMonthlyDueDay()).padStart(2, "0")}`;
 
   const students = db
     .prepare(
