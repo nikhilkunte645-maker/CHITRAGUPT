@@ -86,7 +86,14 @@ export default function App() {
       {/* Desktop sidebar */}
       <aside className="hidden md:fixed md:inset-y-0 md:left-0 md:flex md:w-56 md:flex-col md:border-r md:bg-white">
         <div className="border-b px-5 py-5">
-          <div className="text-lg font-bold">Chitragupt</div>
+          <img
+            src="/chitragupt-logo.png"
+            alt="Chitragupt logo"
+            width={1536}
+            height={1024}
+            className="h-auto w-full max-w-[168px]"
+          />
+          <div className="mt-3 text-lg font-bold">Chitragupt</div>
           <div className="mt-1 text-xs text-slate-500">
             The divine accountant for your tuition business.
           </div>
@@ -115,10 +122,19 @@ export default function App() {
 
       {/* Mobile header with horizontally scrolling nav */}
       <header className="border-b bg-white md:hidden">
-        <div className="px-4 pb-1 pt-3">
-          <div className="text-base font-bold">Chitragupt</div>
-          <div className="text-xs text-slate-500">
-            The divine accountant for your tuition business.
+        <div className="flex items-center gap-3 px-4 pb-1 pt-3">
+          <img
+            src="/chitragupt-logo.png"
+            alt="Chitragupt logo"
+            width={1536}
+            height={1024}
+            className="h-10 w-auto shrink-0"
+          />
+          <div className="min-w-0">
+            <div className="text-base font-bold">Chitragupt</div>
+            <div className="text-xs text-slate-500">
+              The divine accountant for your tuition business.
+            </div>
           </div>
         </div>
         <nav className="flex gap-2 overflow-x-auto px-4 pb-3 pt-2">
