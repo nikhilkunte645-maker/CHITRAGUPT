@@ -1,0 +1,6 @@
+node_modules
+dist
+server/data/*.db
+client/dist
+
+server/data/*.db*

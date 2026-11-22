@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.print-area {
+  display: none;
+}
+
+@media print {
+  aside, header, nav, .no-print, .print-hide { display: none !important; }
+  .print-area { display: block !important; position: static; }
+  body { background: #fff !important; }
+  .print-only-invoice {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 24px;
+    font-size: 14px;
+    color: #000;
+  }
+}
+
