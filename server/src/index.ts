@@ -1,5 +1,8 @@
 import cors from "cors";
 import express, { type NextFunction, type Request, type Response } from "express";
+import fs from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { buildActions } from "./actionsService.js";
 
 import { computeDashboard } from "./dashboardService.js";
@@ -307,6 +310,23 @@ app.post(
   }),
 );
 
+// Single-service deployment: serve the built React app from client/dist.
+// This file runs from server/src (tsx) or server/dist (tsc); both are two levels below the repo root.
+const clientDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "client", "dist");
+const clientIndex = path.join(clientDist, "index.html");
+
+// Unknown /api requests return JSON, never the React HTML page. Registered after every API route.
+app.use("/api", (_req: Request, res: Response) => {
+  res.status(404).json({ error: "Not found" });
+});
+
+if (fs.existsSync(clientIndex)) {
+  app.use(express.static(clientDist));
+  // SPA fallback: GET requests for non-API page routes return index.html so client-side routing works.
+  app.get("*", (_req: Request, res: Response) => {
+    res.sendFile(clientIndex);
+  });
+}
 
 // Error handling: malformed JSON and anything unexpected return { error }.
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
