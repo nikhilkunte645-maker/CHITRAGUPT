@@ -4,6 +4,8 @@
 
 **The Divine Accountant for Your Tuition Business.**
 
+**Live Demo:** [https://chitragupt-demo.onrender.com/](https://chitragupt-demo.onrender.com/)
+
 Chitragupt is a back-office and cash-flow web app for independent home tutors and small tuition academies in India. It replaces the WhatsApp threads and paper notebook where fees are usually tracked, and turns them into a view of who owes money, how long it has been outstanding, and what cash position to expect over the next 30, 60 or 90 days.
 
 Built for the Codebenders ACE Builders' Hackathon 2026, problem statement PS-1: The One-Person Back Office.
@@ -143,6 +145,21 @@ Payments are recorded through POST /api/invoices/:id/payments. The Paste-to-Ledg
             ├── ledgerParser.ts      Rule-based paste parser (pure)
             ├── ledgerService.ts     Parser wired to the database (read-only)
             └── *.test.ts            node:test suites
+
+## Deployment
+
+| Item | Value |
+| --- | --- |
+| Hosting | Render |
+| Deployment type | Single Node.js web service (the Express server also serves the built React app) |
+| Frontend | React, TypeScript, Vite |
+| Backend | Node.js, Express, TypeScript |
+| Database | SQLite (node:sqlite) |
+| Live URL | https://chitragupt-demo.onrender.com/ |
+
+The free Render instance sleeps after a period of inactivity. The first request after that can take a while while the service wakes up; reloading the page after a short wait is normal.
+
+**Storage and data.** The current free deployment uses ephemeral storage. Its SQLite database can be lost on a redeploy or restart. It is intended for hackathon demonstration only and contains synthetic demo data. It is not a persistent production system and must not be used for real financial records.
 
 ## Installation and setup (Windows)
 
