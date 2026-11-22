@@ -4,3 +4,5 @@ server/data/*.db
 client/dist
 
 server/data/*.db*
+
+.codebenders/
